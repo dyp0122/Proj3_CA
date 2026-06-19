@@ -105,6 +105,7 @@ module tb_cpu();
   // always process to check the results of the tests
   // ...
 
+   
   always @(posedge clk) begin
      case (num_inst)
         16'd5: // for testing WWD $0

@@ -51,16 +51,23 @@ module cpu (
     wire isImm;
     wire [15:0] ALU_B;
 
+    reg [`WORD_SIZE-1:0] num_inst_reg; // 얘가 instruction count용 레지스터
+
     assign data = (readM) ? 16'bz : data_out;
     assign address = PC;
     assign readM = (!reset_n) ? 1'b0 : 1'b1;
     
+    assign num_inst = num_inst_reg;
+
     always @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
             PC <= 16'b0;
+            num_inst_reg <=  0;
+
         end
         else begin
             PC <= next_PC;
+            num_inst_reg <= num_inst_reg+ 1;
         end
     end
 
@@ -100,7 +107,6 @@ module cpu (
         .SE_output(SE_output),
         .ALU_function(ALU_function),
         .output_port(output_port),
-        .num_inst(num_inst),
         .ALU_out(ALU_out),
         .RF_data1(RF_data1),
         .RF_data2(RF_data2),
@@ -247,7 +253,7 @@ module ControlUnit(
     output reg [3:0] OP,
     output reg [`WORD_SIZE-1:0] mem_address, // memory access를 위한 주소
     output reg [`WORD_SIZE-1:0] output_port, // WWD 명령어를 위한 출력 포트
-    output [15:0] num_inst,
+
 
     //ALU에서 받는 신호
     input [15:0] ALU_out, // RF에서 ALU로 데이터 연결--rf 데이터를 여기서 받음
@@ -368,5 +374,4 @@ module ControlUnit(
         end
     end
 endmodule
-
 
