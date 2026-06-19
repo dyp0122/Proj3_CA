@@ -41,16 +41,21 @@ module cpu (
 
     //modules 추가
     
-    always @(*) begin
-        address = PC;
-        data = (readM) ? 16'bz : data_out; // readM이 1이면 data는 high impedance, 아니면 data_out 출력
-    end
+    assign data = (readM) ? 16'bz : data_out;
+
+    always @(PC) begin
+        address = PC; // 현재 PC 값을 주소로 출력
+        if (!reset_n)
+        readM = 1'b0;
+        else
+        readM = 1'b1;
+    end 
     
     always @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
-            PC <= 16'b0; // reset 시 PC 초기화
+            PC <= 16'b0;
         end else begin
-            PC <= next_PC; // 다음 명령어로 이동
+            PC <= next_PC;
         end
     end
     
@@ -242,40 +247,7 @@ module ControlUnit(
 
     always @(*) begin 
         case (data [15:10]) 
-            // I-type
-            4'b0000: begin //op = 0 (BNE)
-                //pc= pc+[offset [7:0]]
-                if(RF_to_ALU_data1 != RF_to_ALU_data2) begin
-                    next_PC = PC + SE_output; // offset을 sign-extend하여 PC에 더함
-                end 
-                else begin
-                    next_PC = PC + 16'h0004; // 다음 명령어로 이동
-                end
-            end
-            4'b0001: begin //op = 1 (BEQ)
-                if(RF_to_ALU_data1 == RF_to_ALU_data2) begin
-                    next_PC = PC + SE_output; // offset을 sign-extend하여 PC에 더함
-                end 
-                else begin
-                    next_PC = PC + 16'h0004; // 다음 명령어로 이동
-                end
-            end
-            4'b0010: begin //op = 2 (BGZ)
-                if(RF_to_ALU_data1 > 0) begin
-                    next_PC = PC + SE_output; // offset을 sign-extend하여 PC에 더함
-                end 
-                else begin
-                    next_PC = PC + 16'h0004; // 다음 명령어로 이동
-                end
-            end
-            4'b0011: begin //op = 3 (BLZ)
-                if(RF_to_ALU_data1 < 0) begin
-                    next_PC = PC + SE_output; // offset을 sign-extend하여 PC에 더함
-                end 
-                else begin
-                    next_PC = PC + 16'h0004; // 다음 명령어로 이동
-                end
-            end
+            
             4'b0100: begin //op = 4 (ADI)
                 RF_write = 1; // RF에 쓰기 허용
                 data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
@@ -284,49 +256,19 @@ module ControlUnit(
                 RF_data3 = ALU_output; // ALU의 결과를 RF에 쓰기
                 next_PC = PC + 16'h0004; // 다음 명령어로 이동
             end
-            4'b0101: begin //op = 5 (ORI)
-                RF_write = 1; // RF에 쓰기 허용
-                data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
-                data_2 = SE_output; // ALU의 B 입력에 sign-extended immediate value 연결
-                opcode = 4'b1000; // ALU에 OR 연산 지시
-                RF_data3 = ALU_output; // ALU의 결과를 RF에 쓰기
-                RF_write_addr = RF_addr2; // rt에 결과를 쓰기
-                next_PC = PC + 16'h0004; // 다음 명령어로 이동
-            end
+            
             4'b0110: begin //op = 6 (LHI)
                 RF_write =1;
                 RF_data3 = {Itype_imm, 8'h00}; // 상위 8비트에 즉시값을 넣고 하위 8비트는 0으로 설정
                 RF_write_addr = RF_addr2; // rt에 결과를 쓰기
-                next_PCPC = PC + 16'h0004; // 다음 명령어로 이동
-            end
-            
-            //memory access/write
-            4'b0111: begin //op = 7 (LWD)
-                mem_address = RF_data1 + SE_output;
-                readM = 1; // memory read signal
-                wait(inputReady); // memory에서 데이터가 준비될 때까지 대기
-                RF_data3 = data; // memory에서 읽은 데이터를 RF에 쓰기
-                RF_write = 1; // RF에 쓰기 허용
-
-            end
-            4'b1000: begin //op = 8 (SWD)
-                mem_address = RF_data1 + SE_output;
-                data_out = RF_data2; // memory에 쓸 데이터
-                readM = 0; // memory write signal
                 next_PC = PC + 16'h0004; // 다음 명령어로 이동
             end
+            
             // J-type
             4'b1001: begin //op = 9 (JMP)
-                readM = 1; // memory read signal
                 next_PC = {PC[15:12], data[11:0]};
             end
-            4'b1010: begin //op = 10 (JAL)
-                readM = 1; // memory read signal
-                RF_write = 1; // RF에 쓰기 허용
-                RF_data3 = PC;
-                RF_write_addr = 2'b11; // $3에 결과를 쓰기
-                next_PC = {PC[15:12], data[11:0]};
-            end
+            
             // R-type
             4'b1111: begin
                 case (data [5:0]) 
@@ -340,92 +282,27 @@ module ControlUnit(
                         RF_write = 1; // RF에 쓰기 허용
                         next_PC = PC + 16'h0004; // 다음 명령어로 이동
                     end
-                //SUB $3, $0, $1 ; $3 ← $0 - $1
-                    6'b000001: begin //op = 15, func = 1 (SUB)
-                        ALU_function = 4'b0001; // ALU에 SUB 연산 지시
-                        data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
-                        data_2 = RF_data2; // ALU의 B 입력에 rt 데이터 연결
-                        RF_data3 = ALU_out; // ALU의 결과를 RF에 쓰기
-                        RF_write_addr = RF_addr3; // rd에 결과를 쓰기
-                        RF_write = 1; // RF에 쓰기 허용
-                        next_PC = PC + 16'h0004; // 다음 명령어로 이동
-
-                    end
-                //AND $0, $1, $2 ; $0 ← $1 & $2
-                    6'b000010: begin //op = 15, func = 2 (AND)
-                        ALU_function = 4'b0111; // ALU에 AND 연산 지시
-                        data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
-                        data_2 = RF_data2; // ALU의 B 입력에 rt 데이터 연결
-                        RF_data3 = ALU_out; // ALU의 결과를 RF에 쓰기
-                        RF_write_addr = RF_addr3; // rd에 결과를 쓰기
-                        RF_write = 1; // RF에 쓰기 허용
-                        next_PC = PC + 16'h0004; // 다음 명령어로 이동
-                    end
-                //ORR $1, $2, $1 ; $1 ← $2 — $1 
-                    6'b000011: begin //op = 15, func = 3 (ORR)
-                        ALU_function = 4'b1000; // ALU에 OR 연산 지시
-                        data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
-                        data_2 = RF_data2; // ALU의 B 입력에 rt 데이터 연결
-                        RF_data3 = ALU_out; // ALU의 결과를 RF에 쓰기
-                        RF_write_addr = RF_addr3; // rd에 결과를 쓰기
-                        RF_write = 1; // RF에 쓰기 허용
-                        next_PC = PC + 16'h0004; // 다음 명령어로 이동
-                        
-                    end
-                //NOT $0, $1; $0 ← !$1
-                    6'b000100: begin //op = 15, func = 4 (NOT)
-                        ALU_function = 4'b0110; // ALU에 NOT 연산 지시
-                        data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
-                        RF_data3 = ALU_out; // ALU의 결과를 RF에 쓰기
-                        RF_write_addr = RF_addr3; // rd에 결과를 쓰기
-                        RF_write = 1; // RF에 쓰기 허용
-                        next_PC = PC + 16'h0004; // 다음 명령어로 이동
-                        
-                    end
-                //TCP $0, $2; $0 ← !$2 + 1
-                    6'b000101: begin //op = 15, func = 5 (TCP)
-                        ALU_function = 4'b0110; // ALU에 ID 연산 지시 
-                        data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
-                        RF_data3 = ALU_out+1; // ALU의 결과를 RF에 쓰기
-                        RF_write_addr = RF_addr3; // rd에 결과를 쓰기
-                        RF_write = 1; // RF에 쓰기 허용
-                        next_PC = PC + 16'h0004; // 다음 명령어로 이동
-                        
-                    end
-                //SHL $0, $1; $0 ← $1 << 1 
-                    6'b000110: begin //op = 15, func = 6 (SHL)
-                        ALU_function = 4'b1101; // ALU에 LLS 연산 지시
-                        data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
-                        data_2 =1'b1; // ALU의 B 입력에 1 연결 (shift by 1)
-                        RF_data3 = ALU_out; // ALU의 결과를 RF에 쓰기
-                        RF_write_addr = RF_addr3; // rd에 결과를 쓰기
-                        RF_write = 1; // RF에 쓰기 허용
-                        next_PC = PC + 16'h0004; // 다음 명령어로 이동
-                        
-                    end
-                //SHR $2, $1; $2 ← $1 >> 1
-                    6'b000111: begin //op = 15, func = 7 (SHR)
-                        ALU_function = 4'b1010; // ALU에 ARS 연산 지시
-                        data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
-                        data_2 =1'b1; // ALU의 B 입력에 1 연결 (shift by 1)
-                        RF_data3 = ALU_out; // ALU의 결과를 RF에 쓰기
-                        RF_write_addr = RF_addr3; // rd에 결과를 쓰기
-                        RF_write = 1; // RF에 쓰기 허용
-                        next_PC = PC + 16'h0004; // 다음 명령어로 이동
-                        
-                    end
-            
+                
+                //WWD $0 ; output port ← $0
                     6'b011100: begin //op = 15, func = 28 (WWD)
-                        
+                        data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
+                        output_port = RF_data1; // RF의 rs 데이터를 output_port에 연결
+                        next_PC = PC + 16'h0004; // 다음 명령어로 이동
                     end
                     
                     default: begin
-                        // FILLME: handle invalid function code if necessary
+                        RF_write = 0//RF에서 write 신호
+                        isImm =0 // ALU의 B 입력이 Imm인지 reg인지 구분하는 신호
+                        readM =1// memory read signal- 1이면 memory에서 읽기, 0이면 memory에 쓰기
+                        next_PC = PC + 16'h0004; // 다음 명령어로 이동
                     end
                 endcase
             end
             default: begin
-                // FILLME: handle invalid opcode if necessary
+                RF_write = 0//RF에서 write 신호
+                isImm =0 // ALU의 B 입력이 Imm인지 reg인지 구분하는 신호
+                readM =1// memory read signal- 1이면 memory에서 읽기, 0이면 memory에 쓰기
+                next_PC = PC + 16'h0004; // 다음 명령어로 이동
             end
         endcase
     end
