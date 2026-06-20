@@ -33,13 +33,15 @@ module cpu (
     output [`WORD_SIZE-1:0] num_inst,   // number of instruction during execution // 얘가 출력 평가용
     output [`WORD_SIZE-1:0] output_port // this will be used for a "WWD" instruction //출력 평가용
 );
+    reg [15:0] instr; // data 대용 정보
+
     reg [15:0] PC;
     wire [15:0] next_PC;
     reg [15:0] data_out;
     
     wire [15:0] SE_output;
-    wire [1:0]  RF_addr1 = data[11:10];
-    wire [1:0]  RF_addr2 = data[9:8];
+    wire [1:0]  RF_addr1 = instr[11:10];
+    wire [1:0]  RF_addr2 = instr[9:8];
     wire [1:0]  RF_addr3;
     wire [15:0] RF_data3;
     wire RF_write;
@@ -50,6 +52,15 @@ module cpu (
     wire ALU_Cout;
     wire isImm;
     wire [15:0] ALU_B;
+    
+    always @(posedge inputReady or negedge reset_n) begin
+        if (!reset_n) begin
+            instr <= 16'h0000;
+        end else begin
+            instr <= data;
+        end
+    end
+
 
     reg [`WORD_SIZE-1:0] num_inst_reg; // 얘가 instruction count용 레지스터
 
@@ -72,7 +83,7 @@ module cpu (
     end
 
     SE sign_ext(
-        .in(data[7:0]),
+        .in(instr[7:0]),
         .out(SE_output)
     );
 
@@ -101,7 +112,7 @@ module cpu (
     ControlUnit cu (
         .clk(clk),
         .reset_n(reset_n),
-        .data(data),
+        .data(instr),
         .PC(PC),
         .next_PC(next_PC),
         .SE_output(SE_output),
@@ -275,30 +286,32 @@ module ControlUnit(
 );
     reg [1:0] RF_addr1, RF_addr2, RF_addr3; //rs, rt, rd -- 모두 RF 주소로 연결됨
 
-    reg [15:0] inst_count;
-    assign num_inst = inst_count;
+    wire is_WWD;
+
+
+    assign is_WWD = (data[15:12] == 4'b1111) && (data[5:0] == 6'b011100);
 
     always @(posedge clk or negedge reset_n) begin
         if (!reset_n) begin
-            inst_count <= 16'b0;
-        end
-        else if (inputReady) begin
-            inst_count <= inst_count + 1'b1;
+            output_port <= 16'b0;
+        end else if (is_WWD) begin
+            output_port <= RF_data1; // WWD 명령어일 때 RF의 rs 데이터를 output_port에 연결
         end
     end
 
-    always @(*) begin
-        if(inputReady) begin
-            // instruction이 준비되면 다음 명령어를 처리
-            OP = data[15:12]; // opcode는 instruction의 상위 6비트
-            Itype_imm = data[7:0]; // I-type 명령어의 즉시값은 하위 8비트
-            RF_addr1 = data[11:10]; // rs는 instruction의 9-8비트
-            RF_addr2 = data[9:8]; // rt는 instruction의 7-6비트
-            RF_addr3 = data[7:6]; // rd는 instruction의 5-4비트
-        end 
-        else begin
-            // instruction이 준비되지 않으면 아무 작업도 수행하지 않음
-            next_PC = PC; // PC 유지
+    always @(posedge inputReady or negedge reset_n) begin
+        if (!reset_n) begin
+            RF_addr1 <= 2'b00;
+            RF_addr2 <= 2'b00;
+            RF_addr3 <= 2'b00;
+            Itype_imm <= 8'b0;
+            OP <= 4'b0;
+        end else begin
+            RF_addr1 <= data[11:10]; // rs
+            RF_addr2 <= data[9:8];   // rt
+            RF_addr3 <= data[7:6];   // rd
+            Itype_imm <= data[7:0];   // immediate value for I-type instructions
+            OP <= data[15:12];        // opcode
         end
     end
 
@@ -311,10 +324,7 @@ module ControlUnit(
         data_2 = RF_data2;
         RF_data3 = ALU_out;
         RF_write_addr = RF_addr3;
-        next_PC = PC;
-
-        if (inputReady) begin
-            next_PC = PC + 16'h0001; // 다음 명령어로 이동
+        next_PC = PC+1;
 
             case (data [15:12]) 
                 
@@ -355,7 +365,7 @@ module ControlUnit(
                     //WWD $0 ; output port ← $0
                         6'b011100: begin //op = 15, func = 28 (WWD)
                             data_1 = RF_data1; // ALU의 A 입력에 rs 데이터 연결
-                            output_port = RF_data1; // RF의 rs 데이터를 output_port에 연결
+                            //output_port = RF_data1; -- 이렇게 하니까 데이터가 너무 빠른거 같음
                         end
                         
                         default: begin
@@ -371,7 +381,7 @@ module ControlUnit(
                     readM = 1; // memory read signal- 1이면 memory에서 읽기, 0이면 memory에 쓰기
                 end
             endcase
-        end
     end
+    
 endmodule
 
